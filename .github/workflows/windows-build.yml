@@ -28,10 +28,13 @@ jobs:
           cache: true
 
       - name: Configure
-        shell: pwsh
-        run: |
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
-            -DCMAKE_CONFIGURATION_TYPES=Release
+      shell: pwsh
+      run: |
+        cmake -S . -B build `
+          -G "Visual Studio 17 2022" `
+          -A x64 `
+          -DCMAKE_BUILD_TYPE=Release `
+          -DCMAKE_CONFIGURATION_TYPES=Release
 
       - name: Build
         shell: pwsh
