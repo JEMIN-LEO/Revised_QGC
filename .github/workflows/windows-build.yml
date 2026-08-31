@@ -12,17 +12,20 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: "5.15.2"
+          version: "5.15.14"
+          host: "windows"
+          target: "desktop"
           arch: "win64_msvc2019_64"
-          modules: "qtcharts qtlocation qtpositioning qtserialport qtquickcontrols2"
-
+          modules: "qtcharts qtmultimedia qtserialport qtpositioning qtlocation"
+          cache: true
+          
       - name: Configure
         shell: pwsh
         run: |
