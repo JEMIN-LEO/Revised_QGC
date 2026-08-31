@@ -135,6 +135,7 @@ void PlanManager::loadFromVehicle(void)
     }
 
     _retryCount = 0;
+    _automaticReadRecoveryUsed = false;
     _setTransactionInProgress(TransactionRead);
     _connectToMavlink();
     _requestList();
@@ -812,6 +813,26 @@ void PlanManager::_finishTransaction(bool success, bool apmGuidedItemWrite)
     // First thing we do is clear the transaction. This way inProgesss is off when we signal transaction complete.
     TransactionType_t currentTransactionType = _transactionInProgress;
     _setTransactionInProgress(TransactionNone);
+
+    // A transient link/storage read failure can leave PX4 and QGC out of
+    // sequence. Rebuild one read transaction after a short quiet period
+    // instead of immediately hammering the same MISSION_REQUEST_INT.
+    const bool scheduleReadRecovery = currentTransactionType == TransactionRead
+            && !success
+            && !_automaticReadRecoveryUsed;
+    if (scheduleReadRecovery) {
+        _automaticReadRecoveryUsed = true;
+        QTimer::singleShot(1500, this, [this]() {
+            if (inProgress()) {
+                return;
+            }
+            qCDebug(PlanManagerLog) << QStringLiteral("Recovering failed %1 read transaction").arg(_planTypeString());
+            _retryCount = 0;
+            _setTransactionInProgress(TransactionRead);
+            _connectToMavlink();
+            _requestList();
+        });
+    }
 
     switch (currentTransactionType) {
     case TransactionRead:

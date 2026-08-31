@@ -22,8 +22,41 @@
 #include "PlanViewSettings.h"
 
 #include <QDebug>
+#include <QPointer>
+#include <QTimer>
+#include <QVector>
 
 #include "px4_custom_mode.h"
+
+namespace {
+struct TelemetryPolicyState {
+    QPointer<Vehicle> vehicle;
+    QVector<int> messageIds;
+    int nextMessage = 0;
+};
+
+void sendNextTelemetryPolicyCommand(void* data, int, const mavlink_command_ack_t&, Vehicle::MavCmdResultFailureCode_t)
+{
+    auto* state = static_cast<TelemetryPolicyState*>(data);
+    if (!state->vehicle || state->nextMessage >= state->messageIds.count()) {
+        delete state;
+        return;
+    }
+
+    const int messageId = state->messageIds.at(state->nextMessage++);
+    const Vehicle::MavCmdAckHandlerInfo_t handlerInfo {
+        sendNextTelemetryPolicyCommand,
+        state,
+        nullptr,
+        nullptr,
+    };
+    state->vehicle->sendMavCommandWithHandler(&handlerInfo,
+                                              MAV_COMP_ID_AUTOPILOT1,
+                                              MAV_CMD_SET_MESSAGE_INTERVAL,
+                                              messageId,
+                                              -1.0f);
+}
+}
 
 PX4FirmwarePluginInstanceData::PX4FirmwarePluginInstanceData(QObject* parent)
     : QObject(parent)
@@ -234,6 +267,70 @@ bool PX4FirmwarePlugin::isCapable(const Vehicle *vehicle, FirmwareCapabilities c
 void PX4FirmwarePlugin::initializeVehicle(Vehicle* vehicle)
 {
     vehicle->setFirmwarePluginInstanceData(new PX4FirmwarePluginInstanceData);
+
+    // Re-apply the narrow-band telemetry policy on every connection. This is
+    // intentionally sent after the initial Mission transfer so these command
+    // acknowledgements cannot compete with MISSION_ITEM_INT messages.
+    if (!vehicle->isOfflineEditingVehicle()) {
+        QPointer<Vehicle> connectedVehicle(vehicle);
+        const auto applyTelemetryPolicy = [connectedVehicle]() {
+            if (!connectedVehicle) {
+                return;
+            }
+            if (connectedVehicle->property("narrowBandTelemetryPolicyApplied").toBool()) {
+                return;
+            }
+            connectedVehicle->setProperty("narrowBandTelemetryPolicyApplied", true);
+
+            // These high-rate/debug messages are not needed by the flight
+            // workflow. -1 requests that PX4 stop streaming the message.
+            // Position, altitude, airspeed, GPS, attitude, heartbeat and
+            // Mission messages are deliberately left enabled.
+            static constexpr int disabledMessageIds[] = {
+                MAVLINK_MSG_ID_RAW_IMU,
+                MAVLINK_MSG_ID_SCALED_IMU,
+                MAVLINK_MSG_ID_SCALED_IMU2,
+                MAVLINK_MSG_ID_SCALED_IMU3,
+                MAVLINK_MSG_ID_HIGHRES_IMU,
+                MAVLINK_MSG_ID_ATTITUDE_QUATERNION,
+                MAVLINK_MSG_ID_VIBRATION,
+                MAVLINK_MSG_ID_DEBUG,
+                MAVLINK_MSG_ID_DEBUG_VECT,
+                MAVLINK_MSG_ID_NAMED_VALUE_FLOAT,
+                MAVLINK_MSG_ID_NAMED_VALUE_INT,
+                MAVLINK_MSG_ID_PID_TUNING,
+                MAVLINK_MSG_ID_CONTROL_SYSTEM_STATE,
+                MAVLINK_MSG_ID_ODOMETRY,
+                MAVLINK_MSG_ID_AVAILABLE_MODES,
+                MAVLINK_MSG_ID_CURRENT_MODE,
+                MAVLINK_MSG_ID_MOUNT_ORIENTATION,
+                MAVLINK_MSG_ID_SCALED_PRESSURE,
+                MAVLINK_MSG_ID_TIME_ESTIMATE_TO_TARGET,
+                MAVLINK_MSG_ID_OPEN_DRONE_ID_LOCATION,
+                MAVLINK_MSG_ID_OPEN_DRONE_ID_SYSTEM,
+                MAVLINK_MSG_ID_OPEN_DRONE_ID_ARM_STATUS,
+                MAVLINK_MSG_ID_EFI_STATUS,
+                MAVLINK_MSG_ID_ESC_INFO,
+                MAVLINK_MSG_ID_ESC_STATUS,
+                MAVLINK_MSG_ID_HYGROMETER_SENSOR,
+                MAVLINK_MSG_ID_DEBUG_FLOAT_ARRAY,
+                MAVLINK_MSG_ID_GPS_GLOBAL_ORIGIN,
+            };
+
+            auto* policyState = new TelemetryPolicyState;
+            policyState->vehicle = connectedVehicle;
+            policyState->messageIds = QVector<int>(std::begin(disabledMessageIds), std::end(disabledMessageIds));
+            sendNextTelemetryPolicyCommand(policyState, 0, mavlink_command_ack_t{}, Vehicle::MavCmdResultCommandResultOnly);
+            qDebug() << "Applied narrow-band telemetry message policy";
+        };
+
+        // The state machine is started before firmware-plugin initialization
+        // in Vehicle. Handle both ordering cases so the policy is never lost.
+        connect(vehicle, &Vehicle::initialConnectComplete, vehicle, applyTelemetryPolicy);
+        if (vehicle->isInitialConnectComplete()) {
+            QTimer::singleShot(0, vehicle, applyTelemetryPolicy);
+        }
+    }
 }
 
 bool PX4FirmwarePlugin::sendHomePositionToVehicle(void)

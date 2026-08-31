@@ -72,9 +72,11 @@ public:
     // These values are public so the unit test can set appropriate signal wait times
     // When passively waiting for a mission process, use a longer timeout.
     static const int _ackTimeoutMilliseconds = 1500;
-    // When actively retrying to request mission items, use a shorter timeout instead.
-    static const int _retryTimeoutMilliseconds = 250;
-    static const int _maxRetryCount = 5;
+    // LR900 and similar narrow-band links can take seconds to deliver a
+    // MISSION_ITEM_INT response. Avoid declaring a transfer failed while the
+    // response is still queued in the telemetry link.
+    static const int _retryTimeoutMilliseconds = 1500;
+    static const int _maxRetryCount = 10;
 
 signals:
     void newMissionItemsAvailable   (bool removeAllRequested);
@@ -144,6 +146,7 @@ protected:
 
     TransactionType_t   _transactionInProgress;
     bool                _resumeMission;
+    bool                _automaticReadRecoveryUsed = false;
     QList<int>          _itemIndicesToWrite;    ///< List of mission items which still need to be written to vehicle
     QList<int>          _itemIndicesToRead;     ///< List of mission items which still need to be requested from vehicle
     int                 _lastMissionRequest;    ///< Index of item last requested by MISSION_REQUEST

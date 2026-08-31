@@ -22,11 +22,7 @@ const StateMachine::StateFn InitialConnectStateMachine::_rgStates[] = {
     InitialConnectStateMachine::_stateRequestAutopilotVersion,
     InitialConnectStateMachine::_stateRequestProtocolVersion,
     InitialConnectStateMachine::_stateRequestStandardModes,
-    InitialConnectStateMachine::_stateRequestCompInfo,
-    InitialConnectStateMachine::_stateRequestParameters,
     InitialConnectStateMachine::_stateRequestMission,
-    InitialConnectStateMachine::_stateRequestGeoFence,
-    InitialConnectStateMachine::_stateRequestRallyPoints,
     InitialConnectStateMachine::_stateSignalInitialConnectComplete
 };
 
@@ -34,11 +30,7 @@ const int InitialConnectStateMachine::_rgProgressWeights[] = {
     1, //_stateRequestCapabilities
     1, //_stateRequestProtocolVersion
     1, //_stateRequestStandardModes
-    5, //_stateRequestCompInfo
-    5, //_stateRequestParameters
     2, //_stateRequestMission
-    1, //_stateRequestGeoFence
-    1, //_stateRequestRallyPoints
     1, //_stateSignalInitialConnectComplete
 };
 
@@ -273,17 +265,6 @@ void InitialConnectStateMachine::_protocolVersionRequestMessageHandler(void* res
 
     connectMachine->advance();
 }
-void InitialConnectStateMachine::_stateRequestCompInfo(StateMachine* stateMachine)
-{
-    InitialConnectStateMachine* connectMachine  = static_cast<InitialConnectStateMachine*>(stateMachine);
-    Vehicle*                    vehicle         = connectMachine->_vehicle;
-
-    qCDebug(InitialConnectStateMachineLog) << "_stateRequestCompInfo";
-    connect(vehicle->_componentInformationManager, &ComponentInformationManager::progressUpdate, connectMachine,
-            &InitialConnectStateMachine::gotProgressUpdate);
-    vehicle->_componentInformationManager->requestAllComponentInformation(_stateRequestCompInfoComplete, connectMachine);
-}
-
 void InitialConnectStateMachine::_stateRequestStandardModes(StateMachine *stateMachine)
 {
     InitialConnectStateMachine* connectMachine  = static_cast<InitialConnectStateMachine*>(stateMachine);
@@ -299,27 +280,11 @@ void InitialConnectStateMachine::standardModesRequestCompleted()
 {
     disconnect(_vehicle->_standardModes, &StandardModes::requestCompleted, this,
                &InitialConnectStateMachine::standardModesRequestCompleted);
+
+    // Keep the low-bandwidth telemetry link available for Mission first.
+    // Bulk parameter/component requests are started after all mission-related
+    // states complete, so they cannot starve MISSION_ITEM_INT responses.
     advance();
-}
-
-void InitialConnectStateMachine::_stateRequestCompInfoComplete(void* requestAllCompleteFnData)
-{
-    InitialConnectStateMachine* connectMachine  = static_cast<InitialConnectStateMachine*>(requestAllCompleteFnData);
-    disconnect(connectMachine->_vehicle->_componentInformationManager, &ComponentInformationManager::progressUpdate,
-            connectMachine, &InitialConnectStateMachine::gotProgressUpdate);
-
-    connectMachine->advance();
-}
-
-void InitialConnectStateMachine::_stateRequestParameters(StateMachine* stateMachine)
-{
-    InitialConnectStateMachine* connectMachine  = static_cast<InitialConnectStateMachine*>(stateMachine);
-    Vehicle*                    vehicle         = connectMachine->_vehicle;
-
-    qCDebug(InitialConnectStateMachineLog) << "_stateRequestParameters";
-    connect(vehicle->_parameterManager, &ParameterManager::loadProgressChanged, connectMachine,
-            &InitialConnectStateMachine::gotProgressUpdate);
-    vehicle->_parameterManager->refreshAllParameters();
 }
 
 void InitialConnectStateMachine::_stateRequestMission(StateMachine* stateMachine)
@@ -411,11 +376,20 @@ void InitialConnectStateMachine::_stateSignalInitialConnectComplete(StateMachine
     InitialConnectStateMachine* connectMachine  = static_cast<InitialConnectStateMachine*>(stateMachine);
     Vehicle*                    vehicle         = connectMachine->_vehicle;
 
-    disconnect(vehicle->_rallyPointManager, &RallyPointManager::progressPct, connectMachine,
-               &InitialConnectStateMachine::gotProgressUpdate);
+    // Mission is the only plan downloaded during initial connection. Mark the
+    // initial plan request complete here so Plan controllers do not wait for
+    // optional GeoFence/Rally transfers and start a second progress sequence.
+    vehicle->_initialPlanRequestComplete = true;
+    emit vehicle->initialPlanRequestCompleteChanged(true);
+
+    // Do not automatically request component metadata or the full parameter
+    // list. Those bulk transfers consume a narrow-band telemetry link and can
+    // interfere with later Mission operations. Parameter writes remain
+    // available through ParameterManager when explicitly requested by the UI.
+    qCDebug(InitialConnectStateMachineLog)
+        << "Skipping automatic component information and parameter download";
 
     connectMachine->advance();
     qCDebug(InitialConnectStateMachineLog) << "Signalling initialConnectComplete";
     emit vehicle->initialConnectComplete();
 }
-

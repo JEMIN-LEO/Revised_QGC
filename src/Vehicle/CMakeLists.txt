@@ -85,6 +85,10 @@ add_library(Vehicle
 	VehicleGPSFactGroup.h
 	VehicleGPS2FactGroup.cc
 	VehicleGPS2FactGroup.h
+	VehicleEFIFactGroup.cc
+	VehicleEFIFactGroup.h
+	VehicleGeneratorFactGroup.cc
+	VehicleGeneratorFactGroup.h
 	Vehicle.h
 	VehicleLinkManager.cc
 	VehicleLinkManager.h

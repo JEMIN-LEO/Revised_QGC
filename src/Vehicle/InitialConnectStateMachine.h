@@ -42,10 +42,7 @@ private slots:
 private:
     static void _stateRequestAutopilotVersion           (StateMachine* stateMachine);
     static void _stateRequestProtocolVersion            (StateMachine* stateMachine);
-    static void _stateRequestCompInfo                   (StateMachine* stateMachine);
     static void _stateRequestStandardModes              (StateMachine* stateMachine);
-    static void _stateRequestCompInfoComplete           (void* requestAllCompleteFnData);
-    static void _stateRequestParameters                 (StateMachine* stateMachine);
     static void _stateRequestMission                    (StateMachine* stateMachine);
     static void _stateRequestGeoFence                   (StateMachine* stateMachine);
     static void _stateRequestRallyPoints                (StateMachine* stateMachine);

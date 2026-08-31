@@ -221,7 +221,12 @@ void PlanMasterController::loadFromVehicle(void)
     } else if (syncInProgress()) {
         qCWarning(PlanMasterControllerLog) << "PlanMasterController::loadFromVehicle called while syncInProgress";
     } else {
-        _loadGeoFence = true;
+        // This application only needs the regular Mission route during
+        // connect/load. GeoFence and Rally downloads create a second long
+        // transfer on narrow-band telemetry links, so they remain available
+        // only through explicit manager operations.
+        _loadGeoFence = false;
+        _loadRallyPoints = false;
         qCDebug(PlanMasterControllerLog) << "PlanMasterController::loadFromVehicle calling _missionController.loadFromVehicle";
         _missionController.loadFromVehicle();
         setDirty(false);
