@@ -1,4 +1,4 @@
-name: Build Windows QGC
+name: Revised QGC Windows
 
 on:
   workflow_dispatch:
@@ -8,55 +8,42 @@ on:
 
 jobs:
   build-windows:
-    runs-on: windows-2022
+    runs-on: windows-2019
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: "5.15.14"
-          host: "windows"
-          target: "desktop"
-          arch: "win64_msvc2019_64"
-          modules: "qtcharts qtmultimedia qtserialport qtpositioning qtlocation"
+          version: "5.15.2"
+          host: windows
+          target: desktop
+          arch: win64_msvc2019_64
+          modules: qtcharts
+          setup-python: false
           cache: true
-          
+
       - name: Configure
         shell: pwsh
         run: |
-          cmake -S . -B build `
-            -G "Visual Studio 17 2022" `
-            -A x64 `
+          cmake -S . -B build -G "Visual Studio 16 2019" -A x64 `
             -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         shell: pwsh
-        run: |
-          cmake --build build --config Release --parallel
+        run: cmake --build build --config Release --parallel
 
       - name: Package
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force package
           Copy-Item build/Release/QGroundControl.exe package/QGroundControl.exe
-
-          windeployqt `
-            --release `
-            --compiler-runtime `
-            --qmldir . `
-            package/QGroundControl.exe
-
-      - name: Create ZIP
-        shell: pwsh
-        run: |
-          Compress-Archive `
-            -Path package/* `
-            -DestinationPath QGroundControl-Revised-Windows-x64.zip
+          windeployqt --release --compiler-runtime --qmldir . package/QGroundControl.exe
+          Compress-Archive -Path package/* -DestinationPath QGroundControl-Revised-Windows-x64.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -64,7 +51,7 @@ jobs:
           name: QGroundControl-Revised-Windows-x64
           path: QGroundControl-Revised-Windows-x64.zip
 
-      - name: Publish Release
+      - name: Publish release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
