@@ -55,6 +55,11 @@ jobs:
           New-Item -ItemType Directory -Force package
           Copy-Item build/Release/QGroundControl.exe package/QGroundControl.exe
           windeployqt --release --compiler-runtime --qmldir . package/QGroundControl.exe
+          # windeployqt does not know about QGC's imported third-party DLLs.
+          Copy-Item libs/sdl2/msvc/lib/x64/SDL2.dll package/SDL2.dll
+          $shp = Get-ChildItem -Path build -Filter shp.dll -Recurse | Select-Object -First 1
+          if ($null -eq $shp) { Write-Error 'shp.dll was not produced by the build'; exit 1 }
+          Copy-Item $shp.FullName package/shp.dll
           Compress-Archive -Path package/* -DestinationPath QGroundControl-Revised-Windows-x64.zip
 
       - name: Upload artifact
