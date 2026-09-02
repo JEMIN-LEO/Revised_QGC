@@ -915,15 +915,25 @@ void Vehicle::_chunkedStatusTextCompleted(uint8_t compId)
 
     _chunkedStatusTextInfoMap.remove(compId);
 
-    // PX4 may append a tab when the same text is also represented as an EVENT.
-    // Keep the STATUSTEXT visible as well: older PX4 versions and narrow-band
-    // links may not deliver the corresponding EVENT, which would otherwise
-    // hide useful pre-arm and command failure reasons.
+    // PX4 backwards compatibility: messages sent out ending with a tab are also sent as event
+    if (messageText.endsWith('\t') && px4Firmware()) {
+        qCDebug(VehicleLog) << "Dropping message (expected as event):" << messageText;
+        return;
+    }
 
     bool skipSpoken = false;
     bool ardupilotPrearm = messageText.startsWith(QStringLiteral("PreArm"));
     bool px4Prearm = messageText.startsWith(QStringLiteral("preflight"), Qt::CaseInsensitive) && severity >= MAV_SEVERITY_CRITICAL;
     if (ardupilotPrearm || px4Prearm) {
+        // check if expected as event
+        auto eventData = _events.find(compId);
+        if (eventData != _events.end()) {
+            if (eventData->data()->healthAndArmingChecksSupported()) {
+                qCDebug(VehicleLog) << "Dropping preflight message (expected as event):" << messageText;
+                return;
+            }
+        }
+
         // Limit repeated PreArm message to once every 10 seconds
         if (_noisySpokenPrearmMap.contains(messageText) && _noisySpokenPrearmMap[messageText].msecsTo(QTime::currentTime()) < (10 * 1000)) {
             skipSpoken = true;
@@ -1595,11 +1605,9 @@ void Vehicle::_handleEvent(uint8_t comp_id, std::unique_ptr<events::parser::Pars
         default: break;
     }
 
-    // handle special groups & protocols
-    if (event->group() == "health" || event->group() == "arming_check") {
-        // these are displayed separately
-        return;
-    }
+    // Health and arming checks are normally shown in Vehicle Setup. Keep a
+    // copy in the message stream as well because narrow-band connections may
+    // skip Vehicle Setup initialization.
     if (event->group() == "calibration") {
         emit calibrationEventReceived(id(), comp_id, severity,
                 QSharedPointer<events::parser::ParsedEvent>{new events::parser::ParsedEvent{*event}});
@@ -1608,7 +1616,7 @@ void Vehicle::_handleEvent(uint8_t comp_id, std::unique_ptr<events::parser::Pars
     }
 
     // show message according to the log level, don't show unknown event groups (might be part of a new protocol)
-    if (event->group() == "default" && severity != -1) {
+    if ((event->group() == "default" || event->group() == "health" || event->group() == "arming_check") && severity != -1) {
         std::string message = event->message();
         std::string description = event->description();
 
